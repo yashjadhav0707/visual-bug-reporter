@@ -4,9 +4,23 @@ import type { CanvasEngine } from './useCanvasEngine'
 interface Props { engine: CanvasEngine }
 
 export function AnnotationCanvas({ engine }: Props) {
-  const { canvasRef, activeTool, isHoveringShape, textInput, commitTextInput, cancelTextInput, notifyCanvasMounted, onMouseDown, onMouseMove, onMouseUp } = engine
+  const { canvasRef, activeTool, isHoveringShape, textInput, selectedShapeId, commitTextInput, cancelTextInput, deleteSelected, notifyCanvasMounted, onMouseDown, onMouseMove, onMouseUp, onDoubleClick } = engine
 
   useEffect(() => { notifyCanvasMounted() }, [notifyCanvasMounted])
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (engine.textInput) return
+      const active = document.activeElement
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedShapeId) {
+        e.preventDefault()
+        deleteSelected()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [engine.textInput, selectedShapeId, deleteSelected])
 
   const cursor = isHoveringShape ? 'move' : activeTool === 'text' ? 'text' : 'crosshair'
 
@@ -18,6 +32,7 @@ export function AnnotationCanvas({ engine }: Props) {
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
+        onDoubleClick={onDoubleClick}
       />
 
       {/* Blocks canvas events while text input is active */}
@@ -60,9 +75,10 @@ function TextInputOverlay({ engine, onCommit, onCancel }: {
   return (
     <input
       ref={inputRef}
+      defaultValue={textInput.value}
       style={{
         position: 'fixed', left, top,
-        minWidth: '140px', padding: '6px 10px',
+        minWidth: '140px', padding: '8px',
         background: currentColor, color: '#fff',
         border: '2px solid rgba(255,255,255,0.5)',
         borderRadius: '4px', fontSize: '15px', fontWeight: '600',

@@ -25,6 +25,21 @@ const TAG_CONFIG: { level: TagLevel; label: string; color: string; bg: string }[
   { level: 'low',    label: 'Low',    color: '#4D9FFF', bg: 'rgba(77,159,255,0.15)' },
 ]
 
+function renderDescription(text: string): React.ReactNode {
+  // If description contains HTML (links from RichDescription editor), render as HTML
+  if (/<a\s/i.test(text)) {
+    return <span dangerouslySetInnerHTML={{ __html: text }} />
+  }
+  // Plain text fallback: auto-link URLs
+  const parts = text.split(/(https?:\/\/[^\s]+)/g)
+  if (parts.length === 1) return text
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part)
+      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: '#7B5CF0', textDecoration: 'underline' }}>{part}</a>
+      : part
+  )
+}
+
 export function BugForm({ initialUrl, browserInfo, screenshots, isSubmitting, submitError, onBack, onSubmit }: Props) {
   const [tags, setTags] = useState<(TagLevel | null)[]>(screenshots.map(() => null))
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -79,7 +94,7 @@ export function BugForm({ initialUrl, browserInfo, screenshots, isSubmitting, su
                 </div>
               </div>
 
-              {s.description && <div style={styles.descText}>{s.description}</div>}
+              {s.description && <div style={styles.descText}>{renderDescription(s.description)}</div>}
               <img src={s.dataUrl} alt={s.title} style={styles.image} />
             </div>
           ))}

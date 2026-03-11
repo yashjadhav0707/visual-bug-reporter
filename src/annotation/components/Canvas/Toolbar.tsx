@@ -5,8 +5,8 @@ const COLORS = ['#FF0000', '#FF6B00', '#FFD700', '#00C851', '#00A8FF', '#A855F7'
 interface Props { engine: CanvasEngine; onNext: () => void }
 
 export function Toolbar({ engine, onNext }: Props) {
-  const { activeTool, currentColor, strokeWidth, isFilled, canUndo, canRedo,
-    setActiveTool, setColor, setStrokeWidth, setIsFilled, undo, redo, clearAll } = engine
+  const { activeTool, currentColor, strokeWidth, isFilled, canUndo, canRedo, selectedShapeId,
+    setActiveTool, setColor, setStrokeWidth, setIsFilled, undo, redo, clearAll, deleteSelected } = engine
 
   const showFillToggle = activeTool === 'rectangle' || activeTool === 'ellipse'
 
@@ -69,7 +69,7 @@ export function Toolbar({ engine, onNext }: Props) {
       <div style={styles.group}>
         <ToolBtn label="Undo" icon={<UndoIcon />} active={false} disabled={!canUndo} onClick={undo} />
         <ToolBtn label="Redo" icon={<RedoIcon />} active={false} disabled={!canRedo} onClick={redo} />
-        <ToolBtn label="Clear" icon={<TrashIcon />} active={false} onClick={clearAll} />
+        <ToolBtn label={selectedShapeId ? 'Delete selected' : 'Clear all'} icon={<TrashIcon />} active={false} onClick={selectedShapeId ? deleteSelected : clearAll} />
       </div>
 
       <div style={{ flex: 1 }} />

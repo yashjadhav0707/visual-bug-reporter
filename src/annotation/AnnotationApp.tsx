@@ -9,6 +9,7 @@ import { useCanvasEngine, drawShape } from './components/Canvas/useCanvasEngine'
 import { AnnotationCanvas } from './components/Canvas/AnnotationCanvas'
 import { Toolbar } from './components/Canvas/Toolbar'
 import { BugForm } from './components/BugForm/BugForm'
+import { RichDescription } from './components/RichDescription'
 
 const MAX_SCREENSHOTS = 10
 
@@ -257,12 +258,11 @@ export function AnnotationApp() {
           onChange={e => updateActiveField('title', e.target.value)}
           maxLength={120}
         />
-        <textarea
-          style={styles.descInput}
-          placeholder="Describe what's wrong in this screenshot…"
+        <RichDescription
+          key={activeIndex}
           value={active?.description ?? ''}
-          onChange={e => updateActiveField('description', e.target.value)}
-          rows={2}
+          onChange={html => updateActiveField('description', html)}
+          placeholder="Describe what's wrong… (⌘K to add link)"
         />
         {validationError && <div style={styles.validationError}>{validationError}</div>}
       </div>

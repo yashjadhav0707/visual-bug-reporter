@@ -13,6 +13,7 @@ import type {
 interface TextInputState {
   position: Point
   value: string
+  editingShapeId?: string
 }
 
 type DragHandle = 'start' | 'end' | 'move'
@@ -41,6 +42,7 @@ export interface CanvasEngine {
   undo: () => void
   redo: () => void
   clearAll: () => void
+  deleteSelected: () => void
   commitTextInput: (text: string) => void
   cancelTextInput: () => void
   getAnnotatedDataUrl: () => string
@@ -50,6 +52,7 @@ export interface CanvasEngine {
   onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>) => void
   onMouseMove: (e: React.MouseEvent<HTMLCanvasElement>) => void
   onMouseUp: (e: React.MouseEvent<HTMLCanvasElement>) => void
+  onDoubleClick: (e: React.MouseEvent<HTMLCanvasElement>) => void
 }
 
 export function useCanvasEngine(screenshotDataUrl: string | null): CanvasEngine {
@@ -278,6 +281,27 @@ export function useCanvasEngine(screenshotDataUrl: string | null): CanvasEngine 
     setCurrentShape(null)
   }, [])
 
+  const onDoubleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (textInputRef.current) return
+    const pt = getCanvasPoint(e)
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    const threshold = 20 * (canvas.width / rect.width)
+
+    for (let i = shapesRef.current.length - 1; i >= 0; i--) {
+      const shape = shapesRef.current[i]
+      if (shape.tool === 'text') {
+        const handle = hitTestShape(pt, shape, threshold)
+        if (handle !== null) {
+          setDragState(null)
+          setTextInput({ position: shape.position, value: shape.text, editingShapeId: shape.id })
+          setSelectedShapeId(shape.id)
+          return
+        }
+      }
+    }
+  }, [])
+
   const undo = useCallback(() => {
     setShapes(prev => {
       if (prev.length === 0) return prev
@@ -301,21 +325,45 @@ export function useCanvasEngine(screenshotDataUrl: string | null): CanvasEngine 
     setShapes([]); setRedoStack([]); setCurrentShape(null); setSelectedShapeId(null)
   }, [])
 
+  const deleteSelected = useCallback(() => {
+    const selectedId = selectedShapeIdRef.current
+    if (!selectedId) return
+    setShapes(prev => prev.filter(s => s.id !== selectedId))
+    setSelectedShapeId(null)
+  }, [])
+
   const commitTextInput = useCallback((text: string) => {
-    if (!textInputRef.current || !text.trim()) { setTextInput(null); return }
-    const canvas = canvasRef.current!
-    const rect = canvas.getBoundingClientRect()
-    const fontSize = Math.round(18 * (canvas.width / rect.width))
-    const shape: TextShape = {
-      id: `shape_${Date.now()}`,
-      tool: 'text',
-      position: textInputRef.current.position,
-      text: text.trim(),
-      color: currentColorRef.current,
-      strokeWidth: strokeWidthRef.current,
-      fontSize,
+    if (!textInputRef.current) { setTextInput(null); return }
+    const editingId = textInputRef.current.editingShapeId
+
+    if (!text.trim()) {
+      // If editing and text cleared, delete the shape
+      if (editingId) setShapes(prev => prev.filter(s => s.id !== editingId))
+      setTextInput(null)
+      return
     }
-    setShapes(prev => [...prev, shape])
+
+    if (editingId) {
+      // Update existing text shape
+      setShapes(prev => prev.map(s =>
+        s.id === editingId ? { ...s, text: text.trim() } as TextShape : s
+      ))
+    } else {
+      // Create new text shape
+      const canvas = canvasRef.current!
+      const rect = canvas.getBoundingClientRect()
+      const fontSize = Math.round(18 * (canvas.width / rect.width))
+      const shape: TextShape = {
+        id: `shape_${Date.now()}`,
+        tool: 'text',
+        position: textInputRef.current.position,
+        text: text.trim(),
+        color: currentColorRef.current,
+        strokeWidth: strokeWidthRef.current,
+        fontSize,
+      }
+      setShapes(prev => [...prev, shape])
+    }
     setTextInput(null)
   }, [])
 
@@ -332,9 +380,9 @@ export function useCanvasEngine(screenshotDataUrl: string | null): CanvasEngine 
     canUndo: shapes.length > 0, canRedo: redoStack.length > 0,
     textInput, selectedShapeId,
     setActiveTool, setColor: setCurrentColor, setStrokeWidth, setIsFilled,
-    undo, redo, clearAll, commitTextInput, cancelTextInput,
+    undo, redo, clearAll, deleteSelected, commitTextInput, cancelTextInput,
     getAnnotatedDataUrl, getShapes, loadShapes, notifyCanvasMounted,
-    onMouseDown, onMouseMove, onMouseUp,
+    onMouseDown, onMouseMove, onMouseUp, onDoubleClick,
   }
 }
 
@@ -417,10 +465,12 @@ function drawText(ctx: CanvasRenderingContext2D, shape: TextShape) {
   ctx.font = `bold ${shape.fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`
   ctx.textBaseline = 'top'
   const metrics = ctx.measureText(shape.text)
-  const pad = shape.fontSize * 0.3
+  const scale = shape.fontSize / 18
+  const padX = 8 * scale
+  const padY = 8 * scale
   ctx.fillStyle = shape.color
   ctx.beginPath()
-  ctx.roundRect(shape.position.x - pad, shape.position.y - pad * 0.5, metrics.width + pad * 2, shape.fontSize + pad, 4)
+  ctx.roundRect(shape.position.x - padX, shape.position.y - padY, metrics.width + padX * 2, shape.fontSize + padY * 2, 4)
   ctx.fill()
   ctx.fillStyle = '#ffffff'
   ctx.fillText(shape.text, shape.position.x, shape.position.y)

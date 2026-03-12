@@ -10,44 +10,54 @@ interface DescriptionLink {
   end: number
 }
 
-/** Parse an HTML description into plain text + link positions for Google Docs setLinkUrl() */
+/** Parse an HTML description into plain text + link positions for Google Docs setLinkUrl().
+ *  Uses regex instead of DOM because this runs in a service worker (no document). */
 function parseDescriptionHtml(html: string): { text: string; links: DescriptionLink[] } {
   if (!html || !html.includes('<')) return { text: html || '', links: [] }
 
   const links: DescriptionLink[] = []
+
+  // Strip <div>/<p> open/close → newlines, <br> → newline
+  let normalized = html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:div|p)>/gi, '\n')
+    .replace(/<(?:div|p)(?:\s[^>]*)?>/gi, '')
+
+  // Extract <a> tags: capture href and inner text, replace with just the text
   let text = ''
+  const anchorRe = /<a\s[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
+  let lastIndex = 0
+  let match: RegExpExecArray | null
 
-  // Use a temporary element to walk the HTML
-  const el = document.createElement('div')
-  el.innerHTML = html
+  while ((match = anchorRe.exec(normalized)) !== null) {
+    // Append text before this anchor
+    const before = normalized.slice(lastIndex, match.index)
+    text += stripTags(before)
 
-  function walk(node: Node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      text += node.textContent || ''
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const tag = (node as Element).tagName.toLowerCase()
-      if (tag === 'a') {
-        const href = (node as HTMLAnchorElement).href
-        const start = text.length
-        // Walk children to get the link text
-        node.childNodes.forEach(walk)
-        const end = text.length - 1
-        if (href && end >= start) {
-          links.push({ text: text.slice(start, end + 1), url: href, start, end })
-        }
-      } else if (tag === 'br') {
-        text += '\n'
-      } else if (tag === 'div' || tag === 'p') {
-        if (text.length > 0 && !text.endsWith('\n')) text += '\n'
-        node.childNodes.forEach(walk)
-      } else {
-        node.childNodes.forEach(walk)
-      }
+    const url = match[1]
+    const linkText = stripTags(match[2])
+    const start = text.length
+    text += linkText
+    const end = text.length - 1
+
+    if (url && end >= start) {
+      links.push({ text: linkText, url, start, end })
     }
+
+    lastIndex = match.index + match[0].length
   }
 
-  el.childNodes.forEach(walk)
-  return { text: text.trim(), links }
+  // Append any remaining text after last anchor
+  text += stripTags(normalized.slice(lastIndex))
+
+  // Collapse multiple newlines and trim
+  text = text.replace(/\n{3,}/g, '\n\n').trim()
+
+  return { text, links }
+}
+
+function stripTags(s: string): string {
+  return s.replace(/<[^>]*>/g, '')
 }
 
 export async function createGoogleDoc(

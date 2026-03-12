@@ -3,6 +3,53 @@ import type { AppConfig } from '../types/config'
 
 const TAG_LABEL: Record<TagLevel, string> = { high: '🔴 High', medium: '🟡 Medium', low: '🔵 Low' }
 
+interface DescriptionLink {
+  text: string
+  url: string
+  start: number
+  end: number
+}
+
+/** Parse an HTML description into plain text + link positions for Google Docs setLinkUrl() */
+function parseDescriptionHtml(html: string): { text: string; links: DescriptionLink[] } {
+  if (!html || !html.includes('<')) return { text: html || '', links: [] }
+
+  const links: DescriptionLink[] = []
+  let text = ''
+
+  // Use a temporary element to walk the HTML
+  const el = document.createElement('div')
+  el.innerHTML = html
+
+  function walk(node: Node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent || ''
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = (node as Element).tagName.toLowerCase()
+      if (tag === 'a') {
+        const href = (node as HTMLAnchorElement).href
+        const start = text.length
+        // Walk children to get the link text
+        node.childNodes.forEach(walk)
+        const end = text.length - 1
+        if (href && end >= start) {
+          links.push({ text: text.slice(start, end + 1), url: href, start, end })
+        }
+      } else if (tag === 'br') {
+        text += '\n'
+      } else if (tag === 'div' || tag === 'p') {
+        if (text.length > 0 && !text.endsWith('\n')) text += '\n'
+        node.childNodes.forEach(walk)
+      } else {
+        node.childNodes.forEach(walk)
+      }
+    }
+  }
+
+  el.childNodes.forEach(walk)
+  return { text: text.trim(), links }
+}
+
 export async function createGoogleDoc(
   screenshots: { title: string; description: string; tag: TagLevel | null; imageUrl: string }[],
   bugReport: BugReport,
@@ -12,9 +59,15 @@ export async function createGoogleDoc(
   const tagText = firstTag ? `[${TAG_LABEL[firstTag]}] ` : ''
   const reportTitle = `${tagText}${screenshots[0]?.title ?? 'Bug Report'}`
 
+  // Parse HTML descriptions into plain text + structured link data
+  const processedScreenshots = screenshots.map(s => {
+    const { text, links } = parseDescriptionHtml(s.description)
+    return { ...s, description: text, descriptionLinks: links }
+  })
+
   const payload = {
     title: reportTitle,
-    screenshots,
+    screenshots: processedScreenshots,
     url: bugReport.url,
     browser: bugReport.browserInfo.browser,
     os: bugReport.browserInfo.os,

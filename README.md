@@ -90,7 +90,15 @@ function doPost(e) {
 
     if (s.description) {
       var desc = body.appendParagraph(s.description)
-      desc.editAsText().setBold(false).setFontSize(12).setForegroundColor('#000000')
+      var descText = desc.editAsText()
+      descText.setBold(false).setFontSize(12).setForegroundColor('#000000')
+      if (s.descriptionLinks && s.descriptionLinks.length) {
+        for (var j = 0; j < s.descriptionLinks.length; j++) {
+          var link = s.descriptionLinks[j]
+          descText.setLinkUrl(link.start, link.end, link.url)
+          descText.setForegroundColor(link.start, link.end, '#1155CC')
+        }
+      }
     }
 
     if (s.imageUrl) {
@@ -99,9 +107,9 @@ function doPost(e) {
         var image = body.appendImage(imgBlob)
         var width = image.getWidth()
         var height = image.getHeight()
-        if (width > 600) {
-          var ratio = 600 / width
-          image.setWidth(600)
+        if (width > 680) {
+          var ratio = 680 / width
+          image.setWidth(680)
           image.setHeight(Math.round(height * ratio))
         }
       } catch(err) {

@@ -66,9 +66,43 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   const stored = await chrome.storage.local.get('activeSession')
   const session = stored['activeSession'] as ActiveSession | undefined
   if (session && session.annotationTabId === tabId) {
-    await chrome.storage.local.remove('activeSession')
+    await clearSessionStorage(session)
   }
 })
+
+// Purge any leaked screenshot blobs on service worker startup. Earlier
+// versions stored every captured screenshot under `screenshot_*` keys but
+// only ever cleaned up the first one, which eventually tripped the
+// chrome.storage.local quota ("Resource::kQuotaBytes quota exceeded").
+chrome.runtime.onStartup.addListener(() => { void purgeOrphanedScreenshots() })
+chrome.runtime.onInstalled.addListener(() => { void purgeOrphanedScreenshots() })
+void purgeOrphanedScreenshots()
+
+async function purgeOrphanedScreenshots(): Promise<void> {
+  const all = await chrome.storage.local.get(null)
+  const session = all['activeSession'] as ActiveSession | undefined
+  const keep = new Set<string>()
+  if (session) {
+    for (const k of session.keys) {
+      keep.add(k)
+      keep.add(`${k}_url`)
+    }
+  }
+  const toRemove = Object.keys(all).filter(
+    k => k.startsWith('screenshot_') && !keep.has(k)
+  )
+  if (toRemove.length > 0) {
+    await chrome.storage.local.remove(toRemove)
+  }
+}
+
+async function clearSessionStorage(session: ActiveSession): Promise<void> {
+  const keysToRemove = ['activeSession']
+  for (const k of session.keys) {
+    keysToRemove.push(k, `${k}_url`)
+  }
+  await chrome.storage.local.remove(keysToRemove)
+}
 
 async function handleCapture(): Promise<CaptureScreenshotResponse> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -119,13 +153,12 @@ async function handleAddScreenshot(): Promise<AddScreenshotResponse> {
   if (!tab?.windowId) return { success: false, error: 'No active tab found' }
 
   const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })
+  // Additional screenshots are handed to the annotation tab via sendMessage,
+  // so we don't persist the data URL in chrome.storage.local — doing so was a
+  // pure leak (nothing ever read it back) and pushed us past the storage quota.
   const key = `screenshot_${Date.now()}`
-  await chrome.storage.local.set({
-    [key]: dataUrl,
-    [`${key}_url`]: tab.url ?? '',
-  })
 
-  // Update session with the new key
+  // Update session with the new key (used only for counting)
   const updatedSession: ActiveSession = {
     ...session,
     keys: [...session.keys, key],
@@ -164,7 +197,7 @@ async function handleGetSession(): Promise<GetSessionResponse> {
       annotationTabId: session.annotationTabId,
     }
   } catch {
-    await chrome.storage.local.remove('activeSession')
+    await clearSessionStorage(session)
     return { hasSession: false }
   }
 }
@@ -178,7 +211,7 @@ async function handleClearSession(): Promise<void> {
     } catch {
       // Tab already closed
     }
-    await chrome.storage.local.remove('activeSession')
+    await clearSessionStorage(session)
   }
 }
 
@@ -211,8 +244,14 @@ async function handleSubmit(
   let commentId = ''
   const commentUrl = await createGoogleDoc(screenshotsWithUrls, bugReport, config)
 
-  // Clear the active session
-  await chrome.storage.local.remove('activeSession')
+  // Clear the active session (and any residual screenshot keys)
+  const stored = await chrome.storage.local.get('activeSession')
+  const session = stored['activeSession'] as ActiveSession | undefined
+  if (session) {
+    await clearSessionStorage(session)
+  } else {
+    await chrome.storage.local.remove('activeSession')
+  }
 
   return { success: true, commentId, commentUrl }
 }
